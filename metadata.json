@@ -1,0 +1,5 @@
+{
+  "name": "Lab Inventory Manager",
+  "description": "A comprehensive web application for managing laboratory inventory using Firebase for real-time data synchronization and authentication. It allows for adding, editing, deleting, and tracking inventory items, logging consumption, and provides a dashboard with key metrics and advanced filtering.",
+  "requestFramePermissions": []
+}

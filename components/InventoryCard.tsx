@@ -23,16 +23,23 @@ const InventoryCard: React.FC<InventoryCardProps> = ({ item, db, user, onEdit, o
   const handleQuantityIncrease = async (delta: number) => {
     const itemRef = getSharedItemRef(db, item.id);
     const newQuantity = item.quantity + delta;
+    const updatePayload: any = {
+      quantity: newQuantity,
+      updatedAt: Timestamp.now(),
+      updatedBy: {
+        uid: user.uid,
+        name: user.displayName || user.email,
+        isAnonymous: user.isAnonymous,
+      },
+    };
+
+    // If low stock notification was previously sent, reset it on restock.
+    if (item.lowStockNotified) {
+      updatePayload.lowStockNotified = false;
+    }
+
     try {
-      await updateDoc(itemRef, { 
-        quantity: newQuantity,
-        updatedAt: Timestamp.now(),
-        updatedBy: { 
-            uid: user.uid, 
-            name: user.displayName || user.email,
-            isAnonymous: user.isAnonymous,
-        },
-      });
+      await updateDoc(itemRef, updatePayload);
       await logActivity(db, item.id, user, 'QUANTITY_ADJUST', {
         itemName: item.name,
         itemLot: item.lotNumber,

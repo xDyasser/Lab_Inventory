@@ -23,6 +23,8 @@ export interface InventoryItem {
     updatedAt: Timestamp;
     createdBy: UserRef;
     updatedBy: UserRef;
+    lowStockNotified?: boolean;
+    expiryWarningNotified?: boolean;
 }
 
 export interface ConsumptionLogEntry {

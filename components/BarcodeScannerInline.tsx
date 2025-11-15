@@ -8,7 +8,7 @@ interface BarcodeScannerInlineProps {
   onClose?: () => void;
 }
 
-// ---------- ERROR BOUNDARY (No changes needed) ----------
+// ---------- ERROR BOUNDARY ----------
 interface ScannerErrorBoundaryProps {
   children: React.ReactNode;
 }
@@ -31,10 +31,9 @@ class ScannerErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: any, info: any) {
-    // You can log error details to a service here
+    console.error("Scanner error boundary caught:", error, info);
   }
 
-  
   render() {
     if (this.state.hasError) {
       return (
@@ -47,8 +46,7 @@ class ScannerErrorBoundary extends React.Component<
   }
 }
 
-// Function to filter out noisy, non-critical scanner messages
-// Moved to module scope so it can be exported.
+// Filter out noisy scanner messages
 export const shouldShowError = (err: string): boolean => {
   if (!err) return false;
   const ignoredMessages = [
@@ -59,133 +57,251 @@ export const shouldShowError = (err: string): boolean => {
     "OverconstrainedError",
     "StreamApiNotSupportedError",
     "Invalid-State",
-    "parse error", // Common between scans
+    "parse error",
     "QR code parse error",
     "found no usable camera",
     "unable to query supported devices",
   ];
-  return !ignoredMessages.some(msg => err.includes(msg));
+  return !ignoredMessages.some((msg) => err.includes(msg));
 };
 
-// ---------- SCANNER COMPONENT (Corrected for stability) ----------
+// ---------- SCANNER COMPONENT (PWA Optimized) ----------
 const BarcodeScannerInline: React.FC<BarcodeScannerInlineProps> = ({
   onScan,
   onError,
   onClose,
 }) => {
-  // Use a ref to hold the scanner instance.
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const hasScannedRef = useRef(false); // Prevent duplicate scans
 
-  // Store callbacks in a ref to prevent the useEffect from re-running
+  // Store callbacks in a ref to prevent useEffect re-runs
   const callbacksRef = useRef({ onScan, onError, onClose });
   callbacksRef.current = { onScan, onError, onClose };
 
+  const cleanupTouchListenerRef = useRef<() => void>(() => {});
+  const qrCodeRegionId = "barcode-scanner-inline";
+
   useEffect(() => {
-    const qrCodeRegionId = "barcode-scanner-inline";
-    
-    // Ensure the container element exists
     const container = document.getElementById(qrCodeRegionId);
     if (!container) {
       console.error("Scanner container element not found.");
+      setIsInitializing(false);
       return;
     }
 
-    // Only create a new instance if it doesn't already exist.
-    if (!scannerRef.current) {
-      scannerRef.current = new Html5Qrcode(qrCodeRegionId);
-    }
-    const html5QrCode = scannerRef.current;
-    
-    // Guard to prevent multiple start attempts
-    let isScannerStarted = false;
+    let isCleanedUp = false;
 
     const startScanner = async () => {
-      if (isScannerStarted || html5QrCode.isScanning) {
-        return;
-      }
-
       try {
+        // Create new instance only if needed
+        if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode(qrCodeRegionId);
+        }
+        const html5QrCode = scannerRef.current;
+
+        // Don't start if already scanning
+        if (html5QrCode.isScanning) {
+          setIsInitializing(false);
+          return;
+        }
+
+        // iOS-friendly camera constraints
+        const cameraConfig = { facingMode: "environment" };
+        
         await html5QrCode.start(
-          { facingMode: "environment" }, // Prefer rear camera
+          cameraConfig,
           {
             fps: 10,
-            qrbox: { width: 220, height: 220 },
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+              // Larger scan area for iOS
+              return { width: minEdge * 0.85, height: minEdge * 0.85 };
+            },
+            aspectRatio: 1.0,
           },
           // Success callback
           (decodedText: string, result: Html5QrcodeResult) => {
-            if (isScannerStarted) {
-                isScannerStarted = false; // Prevent multiple triggers
-                callbacksRef.current.onScan(decodedText);
+            if (!hasScannedRef.current && !isCleanedUp) {
+              hasScannedRef.current = true;
+              
+              // Haptic feedback for PWA (if available)
+              if ('vibrate' in navigator) {
+                navigator.vibrate(200);
+              }
+              
+              callbacksRef.current.onScan(decodedText);
             }
           },
-          // Error callback (for continuous scanning messages)
+          // Error callback (continuous scanning noise)
           (errorMessage: string) => {
+            if (isCleanedUp) return;
             const msg = errorMessage || "An unknown error occurred.";
-            callbacksRef.current.onError?.(msg);
             if (shouldShowError(msg)) {
-              // setLocalError(msg); // Suppress UI error
+              callbacksRef.current.onError?.(msg);
             }
           }
         );
-        isScannerStarted = true;
 
-        // --- FIX: Prevent keyboard on tap-to-focus on mobile ---
-        // Find the video element created by the library and add 'readOnly'
+        setIsInitializing(false);
+
+        // --- PWA/Mobile optimizations ---
         const videoElement = container.querySelector("video");
         if (videoElement) {
-          videoElement.setAttribute("readOnly", "true");
-          // The 'playsInline' attribute is also good practice for iOS.
-          videoElement.setAttribute("playsInline", "true");
+          // Critical iOS compatibility attributes
+          videoElement.setAttribute("playsinline", "true");
+          videoElement.setAttribute("webkit-playsinline", "true");
+          videoElement.setAttribute("x5-playsinline", "true");
+          videoElement.setAttribute("autoplay", "true");
+          videoElement.setAttribute("muted", "true");
+          
+          // Prevent input focus
+          videoElement.setAttribute("readonly", "true");
+          videoElement.style.pointerEvents = "none";
+          
+          // iOS Safari needs explicit dimensions
+          videoElement.style.width = "100%";
+          videoElement.style.height = "100%";
+          videoElement.style.objectFit = "cover";
+          videoElement.style.position = "absolute";
+          videoElement.style.top = "0";
+          videoElement.style.left = "0";
+          
+          // Force hardware acceleration on iOS
+          videoElement.style.transform = "translateZ(0)";
+          videoElement.style.webkitTransform = "translateZ(0)";
 
-          // --- FIX: Prevent keyboard on tap of the container ---
-          // The library can add a tabindex to the container, making it focusable.
+          // Prevent container focus
           container.removeAttribute("tabindex");
+          container.style.outline = "none";
+          // TypeScript-safe way to set webkit property
+          (container.style as any).webkitTapHighlightColor = "transparent";
 
-          // --- ROBUST FIX: Prevent default browser action on touch ---
-          // This stops the browser from focusing and showing the keyboard.
+          // Prevent touch interference
           const preventDefaultTouch = (e: TouchEvent) => {
             e.preventDefault();
           };
-          container.addEventListener("touchstart", preventDefaultTouch);
+          container.addEventListener("touchstart", preventDefaultTouch, {
+            passive: false,
+          });
+          
+          // iOS-specific: prevent double-tap zoom
+          let lastTap = 0;
+          const preventDoubleTap = (e: TouchEvent) => {
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            if (tapLength < 500 && tapLength > 0) {
+              e.preventDefault();
+            }
+            lastTap = currentTime;
+          };
+          container.addEventListener("touchend", preventDoubleTap, {
+            passive: false,
+          });
+          
+          cleanupTouchListenerRef.current = () => {
+            container.removeEventListener("touchstart", preventDefaultTouch);
+            container.removeEventListener("touchend", preventDoubleTap);
+          };
         }
       } catch (err: any) {
+        if (isCleanedUp) return;
+        
+        setIsInitializing(false);
         let msg = `Failed to start scanner: ${String(err)}`;
+        
         if (String(err).includes("NotAllowedError")) {
-          msg = "Camera permission was denied. Please grant permission in your browser settings.";
+          msg =
+            "Camera permission denied. Please enable camera access in your device settings.";
         } else if (String(err).includes("NotReadableError")) {
-          msg = "The camera is already in use. Please ensure no other application or browser tab is using it and try again.";
+          msg =
+            "Camera is in use by another app. Please close other camera apps and try again.";
+        } else if (String(err).includes("NotFoundError")) {
+          msg = "No camera found on this device.";
         }
+        
+        setLocalError(msg);
         callbacksRef.current.onError?.(msg);
-        // setLocalError(msg); // Suppress UI error
       }
     };
 
     startScanner();
 
-    // --- Cleanup function on component unmount ---
+    // Cleanup on unmount
     return () => {
-      if (html5QrCode && html5QrCode.isScanning) {
-        html5QrCode.stop().catch((err) => {
-          console.error("Failed to stop the scanner on cleanup.", err);
-        });
+      isCleanedUp = true;
+      hasScannedRef.current = false;
+      cleanupTouchListenerRef.current();
+
+      const html5QrCode = scannerRef.current;
+      if (html5QrCode) {
+        if (html5QrCode.isScanning) {
+          html5QrCode
+            .stop()
+            .then(() => {
+              // Clear the scanner instance
+              scannerRef.current = null;
+            })
+            .catch((err) => {
+              console.error("Failed to stop scanner:", err);
+            });
+        }
       }
     };
-  }, []); // <-- CRITICAL: Empty dependency array ensures this runs only ONCE.
+  }, []); // Run only once
 
   return (
     <ScannerErrorBoundary>
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white p-4 rounded-lg shadow-lg flex flex-col items-center">
-          <div id="barcode-scanner-inline" style={{ width: 260, height: 220, overflow: 'hidden' }} />
+      <div className="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+        <div className="bg-white p-4 rounded-lg shadow-lg flex flex-col items-center max-w-sm w-full mx-4">
+          {/* Scanner Container */}
+          <div
+            id={qrCodeRegionId}
+            style={{
+              width: "100%",
+              maxWidth: 320,
+              height: 320,
+              overflow: "hidden",
+              position: "relative",
+              borderRadius: "8px",
+              backgroundColor: "#000",
+              // iOS performance boost
+              WebkitTransform: "translateZ(0)",
+              transform: "translateZ(0)",
+            }}
+          />
+
+          {/* Loading State */}
+          {isInitializing && (
+            <div className="mt-2 text-sm text-gray-600">
+              Initializing camera...
+            </div>
+          )}
+
+          {/* Error Display */}
+          {localError && (
+            <div className="mt-2 text-sm text-red-600 text-center">
+              {localError}
+            </div>
+          )}
+
+          {/* Instructions */}
+          {!localError && !isInitializing && (
+            <div className="mt-2 text-sm text-gray-600 text-center">
+              Position the barcode in the center
+            </div>
+          )}
+
+          {/* Close Button */}
           <button
             type="button"
-            className="mt-4 px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-sm"
+            className="mt-4 px-6 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 active:bg-gray-400 text-sm font-medium transition-colors"
             onClick={callbacksRef.current.onClose}
           >
             Close Scanner
           </button>
-          </div>
+        </div>
       </div>
     </ScannerErrorBoundary>
   );

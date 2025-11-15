@@ -157,6 +157,9 @@ const ItemForm: React.FC<ItemFormProps> = ({ db, user, onClear, inventory, delet
         updatedAt: Timestamp.now(),
         createdBy: userRef,
         updatedBy: userRef,
+        lowStockNotified: false,
+        expiryWarningNotified: false,
+
       });
 
       localStorage.setItem(LAST_SECTION_KEY, section);

@@ -33,7 +33,13 @@ const InventoryDashboard: React.FC<InventoryDashboardProps> = ({ user, db, onSig
     const handleRestore = async (item: InventoryItem) => {
       try {
         const inventoryRef = doc(db, 'inventory', item.id);
-        await setDoc(inventoryRef, item);
+        // When restoring, reset notification flags
+        const restoredItem = {
+          ...item,
+          lowStockNotified: false,
+          expiryWarningNotified: false,
+        };
+        await setDoc(inventoryRef, restoredItem);
         const deletedRef = doc(db, 'deleted_inventory', item.id);
         await deleteDoc(deletedRef);
         await logActivity(db, item.id, user, 'RESTORE', { itemName: item.name, itemLot: item.lotNumber });

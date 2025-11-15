@@ -21,7 +21,22 @@ export default defineConfig(({ mode }) => {
           registerType: 'autoUpdate',
           includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icons/*.svg', 'icons/*.png'],
           workbox: {
-            globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+            globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+            runtimeCaching: [
+              {
+                // Match any request that ends with .png, .jpg, .jpeg or .svg.
+                urlPattern: /\.(?:png|jpg|jpeg|svg)$/,
+                // Apply a cache-first strategy.
+                handler: 'CacheFirst',
+                options: {
+                  cacheName: 'images',
+                  expiration: {
+                    // Cache up to 50 images.
+                    maxEntries: 50,
+                  },
+                },
+              },
+            ],
           },
           manifest: {
             name: 'Laboratory Inventory Management',
@@ -32,6 +47,7 @@ export default defineConfig(({ mode }) => {
             background_color: '#ffffff',
             theme_color: '#0d6efd', 
             description: 'A PWA for managing laboratory inventory, tracking supplies, and monitoring usage.',
+            permissions: ['camera'],
             icons: [
               {
                 src: 'icons/icon-192.png',
